@@ -262,6 +262,298 @@ c、类装饰器总是最后执⾏
 
 d、⽅法和属性装饰器，谁在前⾯谁先执⾏。因为参数属于⽅法⼀部分，所以参数会⼀直紧紧挨着⽅法执⾏
 
+### 5、接口类型
+
+属性类接⼝
+
+```ts
+interface LabelledValue {
+    size?: number;
+    label: string;
+}
+
+function printLabel(labelledObj: LabelledValue) {
+	console.log(labelledObj.label);
+}
+
+let myObj = {size: 10, label: "Size 10 Object"};
+printLabel(myObj);
+```
+
+```ts
+interface Point {
+	readonly x: number;
+	readonly y: number;
+}
+
+let p1: Point = { x: 10, y: 20 };
+p1.x = 5; // error!
+```
+
+函数类接⼝ 
+
+```ts
+interface SearchFunc {
+	(source: string, subString: string): boolean;
+}
+```
+
+可索引接⼝ 
+
+```ts
+interface StringArray {
+	[index: number]: string;
+}
+
+let myArray: StringArray;
+myArray = ["Bob", "Fred"];
+
+let myStr: string = myArray[0];
+```
+
+类类型接⼝ 
+
+```ts
+interface ClockInterface {
+    currentTime: Date;
+    setTime(d: Date);
+}
+
+class Clock implements ClockInterface {
+    currentTime: Date;
+    setTime(d: Date) {
+        this.currentTime = d;
+    }
+    constructor(h: number, m: number) { }
+}
+// 接口描述了类的公共部分，而不是公共和私有两部分。 它不会帮你检查类是否具有某些私有成员。
+```
+
+扩展接⼝
+
+参考文献：[官方文档](https://www.tslang.cn/docs/handbook/interfaces.html)
+
+## 实战
+
+### 1、axios 封装
+
+```ts
+type Method = 'GET' | 'POST' | 'PUT' | 'DELETE'
+type ResponseType = 'arraybuffer' | 'blob' | 'document' | 'json' | 'text' | 'stream'
+
+interface AxiosRequest {
+    baseURL?: string;
+    url: string;
+    data?: any;
+    params?: any;
+    method?: Method;
+    headers?: any;
+    timeout?: number;
+    responseType?: ResponseType;
+}
+
+interface CustomResponse {
+    readonly status: boolean;
+    readonly message: string;
+    data: any;
+    origin?: any;
+}
+
+
+import axios, { AxiosRequestConfig } from 'axios';
+
+// 定义接口
+interface PendingType {
+    url?: string;
+    method?: Method;
+    params: any;
+    data: any;
+    cancel: Function;
+}
+
+// 取消重复请求
+const pending: Array<PendingType> = [];
+const CancelToken = axios.CancelToken;
+
+// axios 实例
+const instance = axios.create({
+    timeout: 10000,
+    responseType: 'json'
+});
+
+// 移除重复请求
+const removePending = (config: AxiosRequestConfig) => {
+    for (const key in pending) {
+        const item: number = +key;
+        const list: PendingType = pending[key];
+        // 当前请求在数组中存在时执行函数体
+        if (list.url === config.url && list.method === config.method && JSON.stringify(list.params) === JSON.stringify(config.params) && JSON.stringify(list.data) === JSON.stringify(config.data)) {
+            // 执行取消操作
+            list.cancel('操作太频繁，请稍后再试');
+            // 从数组中移除记录
+            pending.splice(item, 1);
+        }
+    }
+};
+
+// 添加请求拦截器
+instance.interceptors.request.use(
+    (request:any) => {
+        // TODO: handle loading
+        
+        removePending(request);
+        request.cancelToken = new CancelToken((c) => {
+            pending.push({ 
+                url: request.url, 
+                method: request.method, 
+                params: request.params, 
+                data: request.data, 
+                cancel: c 
+            });
+        });
+        return request;
+    },
+    (error: any) => {
+        return Promise.reject(error);
+    }
+);
+
+// 添加响应拦截器
+instance.interceptors.response.use(
+    (response: any) => {
+        removePending(response.config);
+
+        const errorCode = response?.data?.errorCode;
+        switch (errorCode) {
+            case '401':
+                // 根据errorCode，对业务做异常处理(和后端约定)
+                break;
+            default:
+                break;
+        }
+
+        return response;
+    },
+    (error: any) => {
+        const response = error.response;
+
+        // 根据返回的http状态码做不同的处理
+        switch (response?.status) {
+            case 401:
+                // token失效
+                break;
+            case 403:
+                // 没有权限
+                break;
+            case 500:
+                // 服务端错误
+                break;
+            case 503:
+                // 服务端错误
+                break;
+            default:
+                break;
+        }
+
+        return Promise.reject(response || {message: error.message});
+    }
+);
+
+class BaseHttp {
+    // 外部传入的baseUrl
+    protected baseURL: string = process.env.VUE_APP_BaseURL as string;
+    // 自定义header头
+    protected headers: object = {
+        ContentType: 'application/json;charset=UTF-8'
+    }
+
+    private apiAxios({ 
+        baseURL = this.baseURL, 
+        headers = this.headers, 
+        method, 
+        url, 
+        data, 
+        params, 
+        responseType 
+    }: AxiosRequest): Promise<CustomResponse> {
+
+        return new Promise((resolve, reject) => {
+            instance({
+                baseURL,
+                headers,
+                method,
+                url,
+                params,
+                data,
+                responseType
+            }).then((res: any) => {
+                // 200:服务端业务处理正常结束
+                if (res.status === 200) {
+                    // TODO 正常返回
+                    resolve(res.data);
+                } else {
+                    resolve({ 
+                        status: false, 
+                        message: res.data?.errorMessage || (url + '请求失败'), 
+                        data: null 
+                    });
+                }
+            }).catch((err: any) => {
+                const message = err?.data?.errorMessage || err?.message || (url + '请求失败');
+                // eslint-disable-next-line
+                reject({ status: false, message, data: null});
+            });
+        });
+    }
+
+    /**
+     * GET类型的网络请求
+     */
+    protected getReq({ 
+        baseURL, 
+        headers, 
+        url, 
+        data, 
+        params, 
+        responseType 
+    }: AxiosRequest) {
+        return this.apiAxios({ 
+            baseURL, 
+            headers, 
+            method: 'GET', 
+            url, 
+            data, 
+            params, 
+            responseType 
+        });
+    }
+
+    /**
+     * POST类型的网络请求
+     */
+    protected postReq({ baseURL, headers, url, data, params, responseType }: AxiosRequest) {
+        return this.apiAxios({ baseURL, headers, method: 'POST', url, data, params, responseType });
+    }
+
+    /**
+     * PUT类型的网络请求
+     */
+    protected putReq({ baseURL, headers, url, data, params, responseType }: AxiosRequest) {
+        return this.apiAxios({ baseURL, headers, method: 'PUT', url, data, params, responseType });
+    }
+
+    /**
+     * DELETE类型的网络请求
+     */
+    protected deleteReq({ baseURL, headers, url, data, params, responseType }: AxiosRequest) {
+        return this.apiAxios({ baseURL, headers, method: 'DELETE', url, data, params, responseType });
+    }
+}
+```
+
+### 2、TS装饰器
+
+
 ```ts
 // 类装饰器
 function Log(target:any) {
@@ -281,6 +573,29 @@ new A();
 // [Function: A]
 // in log decorator
 // constructor
+
+// 生成js文件：
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+// 类装饰器
+function Log(target) {
+    console.log(target);
+    console.log("in log decorator");
+}
+var A = /** @class */ (function () {
+    function A() {
+        console.log("constructor");
+    }
+    A = __decorate([
+        Log
+    ], A);
+    return A;
+}());
+new A();
 ```
 
 ```ts
@@ -315,6 +630,38 @@ console.log((new HelloService() as any).$Meta);
 // undefined
 // constructor
 // { getUser: 'xx' }
+
+// 生成js文件：
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+// 方法装饰器
+function GET(url) {
+    console.log('entry GET decorator');
+    return function (target, methodName, descriptor) {
+        console.log('entry GET decorator function');
+        !target.$Meta && (target.$Meta = {});
+        target.$Meta[methodName] = url;
+    };
+}
+var HelloService = /** @class */ (function () {
+    function HelloService() {
+        console.log("constructor");
+    }
+    HelloService.prototype.getUser = function () {
+        console.log('getUser function called');
+    };
+    __decorate([
+        GET("xx")
+    ], HelloService.prototype, "getUser");
+    return HelloService;
+}());
+new HelloService().getUser();
+console.log(HelloService.$Meta);
+console.log(new HelloService().$Meta);
 ```
 
 ```ts
@@ -332,6 +679,33 @@ class HelloService {
 }
 
 console.log((<any>HelloService).prototype.$Meta); // {'0':'userId'}
+
+// 生成js文件：
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+var __param = (this && this.__param) || function (paramIndex, decorator) {
+    return function (target, key) { decorator(target, key, paramIndex); }
+// 方法参数装饰器
+function PathParam(paramName) {
+    return function (target, methodName, paramIndex) {
+        !target.$Meta && (target.$Meta = {});
+        target.$Meta[paramIndex] = paramName;
+    };
+}
+var HelloService = /** @class */ (function () {
+    function HelloService() {
+    }
+    HelloService.prototype.getUser = function (userId) { };
+    __decorate([
+        __param(0, PathParam("userId"))
+    ], HelloService.prototype, "getUser");
+    return HelloService;
+}());
+console.log(HelloService.prototype.$Meta); // {'0':'userId'}
 ```
 
 ```ts
@@ -373,25 +747,66 @@ console.log(new HttpClient().getUrl())
 // xxxx
 // http://www.baidu.com
 // undefined
+
+// 生成js文件：
+var __decorate = (this && this.__decorate) || function (decorators, target, key, desc) {
+    var c = arguments.length, r = c < 3 ? target : desc === null ? desc = Object.getOwnPropertyDescriptor(target, key) : desc, d;
+    if (typeof Reflect === "object" && typeof Reflect.decorate === "function") r = Reflect.decorate(decorators, target, key, desc);
+    else for (var i = decorators.length - 1; i >= 0; i--) if (d = decorators[i]) r = (c < 3 ? d(r) : c > 3 ? d(target, key, r) : d(target, key)) || r;
+    return c > 3 && r && Object.defineProperty(target, key, r), r;
+};
+// 定义类装饰器
+function logClass(params) {
+    return function (target) {
+        console.log(target);
+        console.log(params);
+    };
+}
+// 定义属性装饰器
+function logProperty(params) {
+    // target--->类的原型对象；attr--->传入的参数url
+    return function (target, attr) {
+        console.log(target, attr);
+        target[attr] = params;
+    };
+}
+var HttpClient = /** @class */ (function () {
+    function HttpClient() {
+    }
+    HttpClient.prototype.getUrl = function () {
+        console.log(this.url);
+    };
+    __decorate([
+        logProperty('http://www.baidu.com')
+    ], HttpClient.prototype, "url");
+    HttpClient = __decorate([
+        logClass('xxxx')
+    ], HttpClient);
+    return HttpClient;
+}());
+console.log(new HttpClient().getUrl());
 ```
 
-### 5、接口类型
-
-属性类接⼝
-
-函数类接⼝ 
-
-可索引接⼝ 
-
-类类型接⼝ 
-
-扩展接⼝
-
-## 实战
-
-### 1、axios 封装
-
-### 2、TS装饰器
-
 # 补充知识点
+
+## tsconfig.json
+
+```json
+{
+    "compilerOptions": {
+        "target": "es6",            // 目标语言的版本
+        "module": "commonjs",       // 指定生成代码的模板标准
+        "noImplicitAny": true,      // 不允许隐式的 any 类型
+        "removeComments": true,     // 删除注释
+        "preserveConstEnums": true, // 保留 const 和 enum 声明
+        "sourceMap": true,          // 生成目录文件的sourceMap文件
+        "outDir": "dist",
+        "experimentalDecorators": true, // 装饰器
+        "strict": true	// 严格模式（null和undefined不能给指定类型赋值）
+    },
+    "include": [    // 指定待编译文件
+        "./"
+    ]
+}
+```
 
