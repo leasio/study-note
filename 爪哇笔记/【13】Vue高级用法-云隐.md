@@ -1,6 +1,9 @@
 # 课程目标
 
-vue的高级用法
+- mixin 复用
+- vue.js 动画特效 & 常见组件库介绍
+- 插槽 & 插件 & 过滤器
+- 深入 vue 原理
 
 # 知识要点
 
@@ -113,4 +116,3 @@ new Vue({
 * 2. 动态组件 - <component :name='name'></component>
 * 3. 异步组件 - router
 
-# 补充知识点
