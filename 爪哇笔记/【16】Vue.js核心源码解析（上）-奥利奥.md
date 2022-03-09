@@ -423,4 +423,3 @@ function trigger(target, type, key, newValue, oldValue, oldTarget) {
 
 ​		其实 `watch` ⽅法，也是基于 `effect` 做的封装，不再赘述。源码分析部分最关键的是， 根据核心原理，抓住⼀条主线，先忽略细节（细节也是作者无数次迭代才逐渐丰富的，不要苛求⼀步到位），等我们对框架的熟悉程 度进⼀步加深的时候，再逐步甚⾄逐行学习。
 
-# 补充知识点
