@@ -2,13 +2,13 @@
 
 p6：
 
-* 掌握react-router使用方法；
-* 能够使用react-router设计开发react应用。
+* 掌握react-router使用方法
+* 能够使用react-router设计开发react应用
 
 p6+~p7：
 
-* 理解react-router关键源码实现。
-* 理解react-router和vue-rouer的实现差异，针对面试提出的问题能举一反三。
+* 理解react-router关键源码实现
+* 理解react-router和vue-rouer的实现差异，针对面试提出的问题能举一反三
 
 # 知识要点
 
