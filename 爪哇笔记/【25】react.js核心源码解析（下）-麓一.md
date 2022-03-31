@@ -19,8 +19,7 @@ p6+~p7：
 * react和vue的diff算法有什么异同？
 * react为什么不去优化diff算法？
 * 传统diff O(n^3)，React Diff O(n)？怎么来的？还可以优化吗？
-* 最好时间复杂度、最坏时间复杂度、平均时间复杂度、均摊时间复杂度
-* 《数据结构和算法之美》极客时间
+* 最好时间复杂度、最坏时间复杂度、平均时间复杂度、均摊时间复杂度：《数据结构和算法之美》——极客时间
 
 diff算法并不是近年才有的，早在多年以前就已经有人在研究diff算法了。最早复杂度基本是O(m^3n^3)，然后优化了30多年，终于在2011年把复杂度降低到O(n^3)。这里的n指的是节点总数，所以1000个节点，要进行10亿次操作。
 
@@ -48,6 +47,361 @@ c. 同一层级的子元素，可以通过key来缓存实例，然后根据算�
 
 d. 完全相同的节点，其虚拟dom也是完成一致的
 
+### 实现一个简化版react
+
+#### index.js
+
+react的使用
+
+```js
+import { render } from "./render";
+import { createElement } from "./react";
+
+const vnode = createElement(
+    "ul",
+    {
+        id: "ul-test",
+        className: "padding-20",
+        style: {
+            padding: "10px",
+        },
+    },
+    createElement("li", { key: "li-0" }, "this is li 01")
+);
+
+const nextVNode = createElement(
+    "ul",
+    {
+        style: {
+            width: "100px",
+            height: "100px",
+            backgroundColor: "green",
+        },
+    },
+    [
+        createElement("li", { key: "li-a" }, "this is li a"),
+        createElement("li", { key: "li-b" }, "this is li b"),
+        createElement("li", { key: "li-c" }, "this is li c"),
+        createElement("li", { key: "li-d" }, "this is li d"),
+    ]
+);
+
+const lastVNode = createElement(
+    "ul",
+    {
+        style: {
+            width: "100px",
+            height: "200px",
+            backgroundColor: "pink",
+        },
+    },
+    [
+        createElement("li", { key: "li-a" }, "this is li a"),
+        createElement("li", { key: "li-c" }, "this is li c"),
+        createElement("li", { key: "li-d" }, "this is li d"),
+        createElement("li", { key: "li-f" }, "this is li f"),
+        createElement("li", { key: "li-b" }, "this is li b"),
+    ]
+);
+
+setTimeout(() => render(vnode, document.getElementById("app")))
+setTimeout(() => render(nextVNode, document.getElementById("app")),6000)
+setTimeout(() => render(lastVNode, document.getElementById("app")),8000)
+```
+
+#### react.js
+
+index.js中``createElement`的实现
+
+```JS
+
+const normalize = (children = []) => 
+	children.map(child => typeof child === 'string' ? createVText(child) : child)
+
+export const NODE_FLAG = {
+    EL: 1, // 元素 element
+    TEXT: 1 << 1
+};
+// El & TEXT  = 0
+
+const createVText = (text) => {
+    return {
+        type: "",
+        props: {
+            nodeValue: text + ""
+        },
+        $$: { flag: NODE_FLAG.TEXT }
+    }
+}
+
+const createVNode = (type, props, key, $$) => {
+    return {
+        type, 
+        props,
+        key,
+        $$,
+    }
+}
+
+export const createElement = (type, props, ...kids) => {
+    props = props || {};
+    let key = props.key || void 0;
+    kids = normalize(props.children || kids);
+
+    if(kids.length) props.children = kids.length === 1? kids[0] : kids;
+
+    // 定义一下内部的属性
+    const $$ = {};
+    $$.staticNode = null;
+    $$.flag = type === "" ? NODE_FLAG.TEXT : NODE_FLAG.EL;
+
+    return createVNode(type, props, key, $$)
+}
+```
+
+#### render.js
+
+index.js中`render`的实现
+
+```js
+import { mount } from "./mount";
+import { patch } from "./patch";
+
+export function render(vnode, parent) {
+    let prev = parent.__vnode;
+    if(!prev) {
+        mount(vnode, parent);
+        parent.__vnode = vnode;
+    } else {
+        if(vnode) {
+            // 新旧两个
+            patch(prev, vnode, parent);
+            parent.__vnode = vnode;
+        } else {
+            parent.removeChild(prev.staticNode)
+        }
+    } 
+}
+```
+
+#### mount.js
+
+render.js中`mount`的实现
+
+```js
+import { patchProps } from "./patch";
+import { NODE_FLAG } from "./react";
+
+export function mount(vnode, parent, refNode) {
+    // 为什么会有一个 refNode?
+    /**                   |
+     * 假如： ul ->  li  li  li(refNode) 
+     */
+    if(!parent) throw new Error('no container');
+    const $$ = vnode.$$;
+
+    if($$.flag & NODE_FLAG.TEXT) {
+        // 如果是一个文本节点
+        const el = document.createTextNode(vnode.props.nodeValue);
+        vnode.staticNode = el;
+        parent.appendChild(el);
+    } else if($$.flag & NODE_FLAG.EL) {
+        // 如果是一个元素节点的情况，先不考虑是一个组件的情况；
+        const { type, props } = vnode;
+        const staticNode = document.createElement(type);
+        vnode.staticNode = staticNode;
+
+        // 我们再来处理，children 和后面的内容
+        const { children, ...rest} = props;
+        if(Object.keys(rest).length) {
+            for(let key of Object.keys(rest)) {
+                // 属性对比的函数
+                patchProps(key, null, rest[key], staticNode);
+            }
+        }
+
+        if(children) {
+            // 递归处理子节点
+            const __children = Array.isArray(children) ? children : [children];
+            for(let child of __children) {
+                mount(child, staticNode);
+            }
+        }
+        refNode ? parent.insertBefore(staticNode, refNode) : parent.appendChild(staticNode);
+    }   
+}
+```
+
+#### patch.js
+
+render.js中`patch`的实现；mount.js中`patchProps`的实现
+
+```js
+import { mount } from "./mount";
+import { diff } from './diff';
+
+function patchChildren(prev, next, parent) {
+    // diff 整个的逻辑还是耗性能的，所以，我们可以先提前做一些处理。
+    if(!prev) {
+        if(!next) {
+            // nothing
+        } else {
+            next = Array.isArray(next) ? next : [next];
+            for(const c of next) {
+                mount(c, parent);
+            }
+        }
+    } else if(!next) parent.removeChild(prev.staticNode);
+    else if (!Array.isArray(prev)) {
+        // 只有一个 children
+        if(!Array.isArray(next)) {
+            patch(prev, next, parent)
+        } else {
+            // 如果prev 只有一个节点，next 有多个节点
+            parent.removeChild(prev.staticNode);
+            for(const c of next) {
+                mount(c, parent);
+            }
+        }
+    } else {
+        if(!Array.isArray(next)) {
+            parent.removeChild(prev.staticNode);
+            mount(next, parent);
+        } else diff(prev, next, parent);
+    } 
+}
+
+export function patch (prev, next, parent) {
+    // type: 'div' -> 'ul'
+    if(prev.type !== next.type) {
+        parent.removeChild(prev.staticNode);
+        mount(next, parent);
+        return;
+    }
+
+    // type 一样，diff props 
+    // 先不看 children 
+    const { props: { children: prevChildren, ...prevProps}} = prev;
+    const { props: { children: nextChildren, ...nextProps}} = next;
+    // patch Porps
+    const staticNode = (next.staticNode = prev.staticNode);
+    for(let key of Object.keys(nextProps)) {
+        let prev = prevProps[key],
+        next = nextProps[key]
+        patchProps(key, prev, next, staticNode)
+    }
+
+    for(let key of Object.keys(prevProps)) {
+        if(!nextProps.hasOwnProperty(key)) patchProps(key, prevProps[key], null, staticNode);
+    }
+
+    // patch Children ！！！
+    patchChildren(
+        prevChildren,
+        nextChildren,
+        staticNode
+    )
+
+}
+
+
+export function patchProps(key, prev, next, staticNode) {
+    // style 
+    if(key === "style") {
+        // margin: 0 padding: 10
+        if(next) {
+            for(let k in next) {
+                staticNode.style[k] = next[k];
+            }
+        }
+        if(prev) {
+        // margin: 10; color: red
+            for(let k in prev) {
+                if(!next.hasOwnProperty(k)) {
+                    // style 的属性，如果新的没有，老的有，那么老的要删掉。
+                    staticNode.style[k] = "";
+                }
+            }
+        }
+    }
+
+    else if(key === "className") {
+        if(!staticNode.classList.contains(next)) {
+            staticNode.classList.add(next);
+        }
+    }
+
+    // events
+    else if(key[0] === "o" && key[1] === 'n') {
+        prev && staticNode.removeEventListener(key.slice(2).toLowerCase(), prev);
+        next && staticNode.addEventListener(key.slice(2).toLowerCase(), next);
+
+    } else if (/\[A-Z]|^(?:value|checked|selected|muted)$/.test(key)) {
+        staticNode[key] = next
+
+    } else {
+        staticNode.setAttribute && staticNode.setAttribute(key, next);
+    }
+}
+```
+
+#### diff.js
+
+patch.js中`diff`的实现
+
+```js
+import { mount } from './mount.js'
+import { patch } from './patch.js'
+
+export const diff = (prev, next, parent) => {
+    let prevMap = {}
+    let nextMap = {}
+
+    // 遍历我的老的 children
+    for (let i = 0; i < prev.length; i++) {
+        let { key = i + '' } = prev[i]
+        prevMap[key] = i
+    }
+
+    let lastIndex = 0
+    // 遍历我的新的 children
+    for (let n = 0; n < next.length; n++) {
+        let { key = n + '' } = next[n]
+        // 老的节点
+        let j = prevMap[key]
+        // 新的 child
+        let nextChild = next[n]
+        nextMap[key] = n
+        
+        if (j == null) {
+            // 老的children      新的children
+            // [b, a]           [c, d, a]  =>  [c, b, a]  --> c
+            // [b, a]           [c, d, a]  =>  [c, d, b, a]  --> d
+            // 从老的里面没有找到,新插入
+            let refNode = n === 0 ? prev[0].staticNode : next[n - 1].staticNode.nextSibling
+            mount(nextChild, parent, refNode)
+        } else {
+            // [b, a]           [c, d, a]  =>  [c, d, a, b]  --> a
+            // 如果找到了，我 patch 
+            patch(prev[j], nextChild, parent)
+
+            if (j < lastIndex) {
+                // 上一个节点的下一个节点的前面，执行插入
+                let refNode = next[n - 1].staticNode.nextSibling;
+                parent.insertBefore(nextChild.staticNode, refNode)
+            } else {
+                lastIndex = j
+            }
+        }
+    }
+    // [b, a]           [c, d, a]  =>  [c, d, a]  --> b
+    for (let i = 0; i < prev.length; i++) {
+        let { key = '' + i } = prev[i]
+        if (!nextMap.hasOwnProperty(key)) parent.removeChild(prev[i].staticNode)
+    }
+}
+```
+
 ## 调度
 
 `concurrent`模式 / 18里面 -- 调度。
@@ -70,6 +424,75 @@ chrome 60hz 每16.666ms执行一次时间循环。
 为什么没有用`generator`
 
 为什么没有用`setTimeout` -- 4-5ms延时
+
+```js
+/**
+ * schedule —> 把我的任务放进一个队列里，然后以某一种节奏进行执行；
+ * 
+ */
+
+// task 的任务队列
+const queue = [];
+const threshold = 1000 / 60;
+
+const transtions = [];
+let deadline = 0;
+
+// 获取当前时间， bi  date-now 精确
+const now = () => performance.now(); // 时间 ，精确
+// 从任务queue中，选择第一个 任务 
+const peek = arr => arr.length === 0 ? null : arr[0];
+
+// schedule —> 把我的任务放进一个队列里，然后以某一种节奏进行执行；
+export function schedule (cb) {
+    queue.push(cb);
+    startTranstion(flush);
+}
+
+// 此时，是否应该交出执行权
+function shouldYield() {
+    return navigator.scheduling.isInputPending() || now() >= deadline;
+}
+
+// 执行权的切换
+function startTranstion(cb) {
+    transtions.push(cb) && postMessage();
+}
+
+// 执行权的切换
+const postMessage = (() => {
+    const cb = () => transtions.splice(0, 1).forEach(c => c());
+    const { port1, port2 } = new MessageChannel();
+    port1.onmessage = cb;
+    return () => port2.postMessage(null);
+})()
+
+// 模拟实现 requestIdleCallback 方法
+function flush() {
+    // 生成时间，用于判断
+    deadline = now() + threshold;
+    let task = peek(queue);
+
+    // 我还没有超出 16.666ms 同时，也没有更高的优先级打断我
+    while(task && !shouldYield()) {
+        const { cb } = task;
+        const next = cb();
+        // 相当于有一个约定，如果，你这个task 返回的是一个函数，那下一次，就从你这里接着跑
+        // 那如果 task 返回的不是函数，说明已经跑完了。不需要再从你这里跑了
+        if(next && typeof next === "function") {
+            task.cb = next;
+        } else {
+            queue.shift()
+        }
+        task = peek(queue);
+    }
+
+    // 如果我的这一个时间片，执行完了，到了这里。
+    task && startTranstion(flush)
+}
+```
+
+
 
 # 补充知识点
 
@@ -130,8 +553,8 @@ function App() {
 // App 是不是也是⼀个 Fiber
 // 在beginWork的时候 App(); -> vdom
 
-//AppFiber.memoizedState -> hook.next -> hook.next -> hook
-//							hook.memoizedState - 保存了 hook 对应的属性
+// AppFiber.memoizedState -> hook.next -> hook.next -> hook
+// 							 hook.memoizedState - 保存了 hook 对应的属性
  
 class Main extends Component {
     render(){
