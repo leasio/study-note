@@ -169,6 +169,125 @@ dumi由蚂蚁金服的umi团队开源，广泛应用于阿里生态的各开源�
 
 接下来，我们开始基于lerna，0到1搭建一个组件库：
 
+![image-20220402230132157](assets/image-20220402230132157-16489116934442.png)
+
+最外层不需要上传npm，在package.json中设置`private: true`
+
+其中单个包：
+
+![image-20220402223807709](assets/image-20220402223807709-16489102891481.png)
+
+构建工具用`rollup`
+
+打包命令：`rollup -c`
+
+配置文件：`rollup.config.js`
+
+```js
+import resolve from '@rollup/plugin-node-resolve';
+import commonjs from '@rollup/plugin-commonjs';
+import typescript from '@rollup/plugin-typescript';
+import babel, { getBabelOutputPlugin } from '@rollup/plugin-babel';
+import postcss from 'rollup-plugin-postcss'
+import jsx from 'acorn-jsx';
+
+export default {
+    input: "./src/index.ts",
+    acornInjectPlugins: [jsx()],
+    plugins: [
+        resolve(),
+        commonjs(),
+        postcss({
+            extract: true,
+            modules: true,
+        }),
+        typescript({ jsx: 'preserve' }),
+        babel({ 
+            presets: ['@babel/preset-react'], 
+            babelHelpers: 'bundled',
+            extensions: ['.ts', '.tsx']  
+        })
+    ],
+    output: [{
+        file: 'dist/index.js',
+        format: 'cjs',
+        plugins: [
+            getBabelOutputPlugin({
+                presets: ['@babel/preset-env'],
+            })
+        ]
+    }]
+}
+```
+
+案例文件：`src\Card\index.tsx`
+
+```tsx
+function Card () {
+    return (
+        <div>Card</div>
+    )
+}
+
+export default Card;
+```
+
+文档工具用`docz	`
+
+搭建命令：`docz build && docz serve`
+
+案例文档：`src\Card\index.mdx`
+
+```mdx
+---
+name: Card
+route: /
+---
+
+import { Playground, Props } from 'docz'
+import Card from './'
+
+# Card
+
+<Props of={Card} />
+
+## Basic usage
+
+<Playground>
+	<Card>Click me</Card>
+</Playground>
+```
+
+配置文件：`.doczrc.js`
+
+```js
+export default {
+    typescript: true,
+}
+```
+
+测试工具用`jest`
+
+测试命令：`jest`
+
+案例测试：`test\Card.test.js`
+
+```js
+/**
+ * @jest-environment jsdom
+ */
+const { render, screen } = require('@testing-library/react');
+const Card = require('../src/Card').default;
+
+describe('react-components', () => {
+    test('test Card include card', () => {
+        render(Card());
+        const cardFont = screen.getByText(/Card/i);
+        expect(cardFont).toBeTruthy();
+    })
+})
+```
+
 ## 引入代码规范和提交规范
 
 ### Eslint & Prettier
@@ -224,8 +343,14 @@ staged是Git里的概念，表示暂存区，lint-staged表示只检查并矫正
 ```js
 // package.json
 "lint-staged": {
-    "*.tsx": [
+    "*.{ts,tsx}": [
         "eslint --fix",
+        "prettier --write",
+        "git add"
+    ],
+    "*.{css,less}": [
+        "stylelint --fix",
+        "prettier --write",
         "git add"
     ]
 },
@@ -604,5 +729,3 @@ describe('decrement', () => {
 > 3. 修订号：当你做了向下兼容的问题修正。
 
 可以使用lerna version交互式的选择你的版本号。
-
-# 补充知识点

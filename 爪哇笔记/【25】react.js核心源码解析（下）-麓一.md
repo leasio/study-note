@@ -114,7 +114,6 @@ setTimeout(() => render(lastVNode, document.getElementById("app")),8000)
 index.js中``createElement`的实现
 
 ```JS
-
 const normalize = (children = []) => 
 	children.map(child => typeof child === 'string' ? createVText(child) : child)
 
@@ -251,10 +250,10 @@ function patchChildren(prev, next, parent) {
                 mount(c, parent);
             }
         }
-    } else if(!next) parent.removeChild(prev.staticNode);
-    else if (!Array.isArray(prev)) {
+    } else if (prev && !Array.isArray(prev)) {
         // 只有一个 children
-        if(!Array.isArray(next)) {
+        if(!next) parent.removeChild(prev.staticNode);
+        else if(next && !Array.isArray(next)) {
             patch(prev, next, parent)
         } else {
             // 如果prev 只有一个节点，next 有多个节点
@@ -263,12 +262,7 @@ function patchChildren(prev, next, parent) {
                 mount(c, parent);
             }
         }
-    } else {
-        if(!Array.isArray(next)) {
-            parent.removeChild(prev.staticNode);
-            mount(next, parent);
-        } else diff(prev, next, parent);
-    } 
+    } else diff(prev, next, parent);
 }
 
 export function patch (prev, next, parent) {

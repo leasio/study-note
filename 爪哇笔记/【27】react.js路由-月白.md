@@ -99,15 +99,372 @@ const location = useLocation()
 location.push("/")
 ```
 
-以上是react-hooks的最基本用法，下面通过代码演示，来详细了解react-router的使用：
-
 ## 搭建基于react-router的应用
 
-代码演示：
+```tsx
+import * as React from "react";
+import ReactDOM from "react-dom";
+import { BrowserRouter } from "react-router-dom";
+import Routes from "./routes";
+import "./index.css";
+import { AuthProvider } from "./auth";
 
-* 基于cra的基本react-router搭建
-* layout和懒加载
-* 权限验证
+ReactDOM.hydrate(
+    <React.StrictMode>
+        <AuthProvider>
+            <BrowserRouter>
+                <Routes />
+            </BrowserRouter>
+        </AuthProvider>
+    </React.StrictMode>,
+    document.getElementById("root")
+);
+```
+
+### 面试1：react-router的登录校验实现思路
+
+鉴权
+
+```tsx
+// auth.tsx
+import { createContext, useContext, useEffect, useState } from "react";
+import { Link, Navigate, useLocation } from 'react-router-dom';
+
+interface AuthContext {
+    user: any;
+    login: (user: string) => void;
+    logout: () => void;
+}
+
+const AuthContext = createContext<AuthContext>(null!);
+
+export function AuthProvider({ children }: { children: React.ReactNode }) {
+    const [user, setUser] = useState<any>(null);
+    const [loading, setLoading] = useState(true);
+    const getUserInfo = async () => {
+        const user = await fetch("/api/userinfo").then(res => res.json());
+        setUser(user.data);
+        setLoading(false);
+    }
+    const login = async (newUser: string) => {
+        await fetch('/api/login');
+        await getUserInfo();
+        return true;
+    };
+
+    const logout = async () => {
+        await fetch('/api/logout');
+        setUser(null);
+        return true;
+    };
+
+    useEffect(() => {
+        getUserInfo()
+    }, [])
+  
+    const value = { user, login, logout };
+
+    return loading ? 'loading...' : <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
+}
+
+export function RequireAuth({ children }: { children: JSX.Element }) {
+    let auth = useAuth();
+    let location = useLocation();
+
+    if (!auth.user) {
+        return <Navigate to="/login" state={{ from: location }} replace />;
+    }
+
+    return children;
+}
+
+export function useAuth() {
+    return useContext(AuthContext);
+}
+
+export function useAuthStatus() {
+    const auth = useAuth();
+
+    if (!auth.user) {
+        return <Link to="/login">登录</Link>
+    }
+
+    return <Link to="/logout">退出登录</Link>
+}
+```
+
+```tsx
+// routes.tsx
+import { useRoutes } from "react-router"
+import { RequireAuth } from "./auth"
+import Layout from "./layouts/Layout"
+import About from "./pages/About"
+import Account from "./pages/Account"
+import Home from "./pages/Home"
+import Login from "./pages/Login"
+import Logout from "./pages/Logout"
+
+export const routes = [
+    {
+        path: '/',
+        name: '首页',
+        element: <Home />,
+        nav: true,
+    },
+    {
+        path: '/about',
+        name: '关于我们',
+        element: <About />,
+        nav: true,
+    },
+    {
+        path: '/login',
+        name: '登录',
+        element: <Login />,
+    },
+    {
+        path: '/logout',
+        name: '退出登录',
+        element: <Logout />
+    },
+    {
+        path: '/account',
+        name: '我的账户',
+        element: <Account />,
+        auth: true,
+        nav: true,
+    }
+]
+
+function Routes () {
+    const r = useRoutes([
+        {
+            path: '/',
+            element: <Layout />,
+            children: routes.map(e => {
+                if (e.auth) {
+                    e.element = (
+                        <RequireAuth>
+                            {e.element}
+                        </RequireAuth>
+                    )
+                }
+                return e;
+            }),
+        }
+    ]);
+    return r;
+}
+
+export default Routes;
+```
+
+
+
+### 面试2：react-router懒加载的实现思路
+
+React.lazy
+
+```tsx
+import * as React from "react";
+import ReactDOM from "react-dom";
+import { BrowserRouter, Routes, Route } from "react-router-dom";
+import Layout from "./layouts/Layout"
+
+const Account = React.lazy(() => import("./pages/Account"));
+
+ReactDOM.hydrate(
+    <React.StrictMode>
+        <BrowserRouter>
+            <Routes>
+                <Route path="/" element={<Layout />}>
+                    <Route path="/account" element={
+                        <React.Suspense fallback={(<div>loading...</div>)}>
+                            <Account />
+                        </React.Suspense>
+                    } />
+                </Route>
+            </Routes>
+        </BrowserRouter>
+    </React.StrictMode>
+);
+```
+
+### 面试3：在react-router v6中如何实现离开页面前确认
+
+navigator.block
+
+```ts
+// usePrompt.ts
+import { useCallback, useContext, useEffect, useState } from 'react';
+import { UNSAFE_NavigationContext, useLocation, useNavigate } from 'react-router-dom';
+import type { History, Transtition } from 'history';
+
+export function usePrompt(when: boolean): (boolean | (() => void))[] {
+    const navigate = useNavigate();
+    const location = useLocation();
+    const [showPrompt, setShowPrompt] = useState(false);
+    const [lastLocation, setLastLocation] = useState<any>(null);
+    const [confirmedNavigation, setConfirmedNavigation] = useState(false);
+    
+    const cancelNavigation = useCallback(() => {
+        setShowPrompt(false);
+    }, [])
+    
+    const handleBlockedNavigation = useCallback(
+        (naxtLocation) => {
+            if (
+                !confirmedNavigation &&
+                naxtLocation.location.pathname !== location.pathname
+            ) {
+                setShowPrompt(true);
+                setLastLocation(nextLocation);
+                return false;
+            }
+            return true;
+        }, 
+        [confirmedNavigation]
+    );
+    
+    const confirmNavigation = useCallback(() => {
+        setShowPrompt(false);
+        setConfirmedNavigation(true);
+    }, []);
+    
+    useEffect(() => {
+        if (confirmedNavigation && lastLocation) {
+            navigate(lastLocation.location.pathname);
+        }
+    }, [confirmedNavigation, lastLocation]);
+    
+    const navigator = useContext(UNSAFE_NavigationContext)
+    	.navigator as History;
+    
+    useEffect(() => {
+        if (!when) return;
+        
+        const unblock = navigator.block((tx: Transition) => {
+            const autoUnblockingTx = {
+                ...tx,
+                retry() {
+                    unblock();
+                    tx.retry();
+                }
+            };
+            
+            handleVlockedNavigation(autoUnblockingTx);
+        });
+        
+        return unblock;
+    }, [navigator, handleBlockedNavigation, when]);
+    
+    return [showPrompt, confirmNavigation, cancelNavigation];
+}
+```
+
+```tsx
+// 弹框组件
+import { Button, Modal } from 'react-bootstrap'
+
+interface DialogBoxProps {
+    showDialog: boolean
+    cancelNavigation: any
+    confirmNavigation: any
+}
+
+const DialogBox: React.FC<DialogBoxProps> = ({
+    showDialog,
+    cancelNavigation,
+    confirmNavigation,
+}) => {
+    return (
+        <Modal show={showDialog}>
+            <Modal.Header>
+                <Modal.Title>警告</Modal.Title>
+            </Modal.Header>
+            <Modal.Body>
+                <b>确认离开页面吗</b>
+                <br /> 离开页面后您填写的内容将全部丢失
+            </Modal.Body>
+            <Modal.Footer>
+                <Button variant="primary" onClick={cancelNavigation}>
+                    取消
+                </Button>
+                <Button variant="danger" onClick={confirmNavigation}>
+                    确认
+                </Button>
+            </Modal.Footer>
+        </Modal>
+    )
+}
+export default DialogBox
+```
+
+```tsx
+// 页面调用
+import { useState } from "react";
+import { usePrompt } from "../../hooks/usePrompt";
+import DialogBox from "../../components/Dailog";
+
+export default () => {
+    const [showDialog, setShowDialog] = useState<boolean>(false)
+    const [showPrompt, confirmNavigation, cancelNavigation] =
+          usePrompt(showDialog)
+
+    const handleChange = (event: any) => {
+        setShowDialog(true)
+    }
+  
+    return (
+        <div>
+            <DialogBox
+                // @ts-ignore
+                showDialog={showPrompt}
+                confirmNavigation={confirmNavigation}
+                cancelNavigation={cancelNavigation}
+            />
+            <input onChange={handleChange} />
+        </div>
+    )  
+}
+```
+
+### 面试4：如何在服务端处理react-router
+
+StaticRouter
+
+```tsx
+import * as React from "react";
+import ReactDOMServer from "react-dom/server";
+import { StaticRouter } from "react-router-dom/server";
+import Routes from "./routes";
+
+export function render(url: string) {
+    return ReactDOMServer.renderToString(
+        <React.StrictMode>
+            <StaticRouter location={url}>
+                <Routes />
+            </StaticRouter>
+        </React.StrictMode>
+    );
+}
+```
+
+### 面试5：react-router有哪些路由类型，及其实现原理和差异
+
+* BrowserRouter
+* HashRouter
+* HistoryRouter
+
+（原理见下面“核心源码解析”）
+
+### 面试6：为什么要分react-router、react-router-dom，react-router-native这样实现的好处是什么
+
+（详见下面“核心源码解析”）
+
+### 面试7：react-router和vue-router有哪些异同
+
+（详见下面“react-router和vue-router的差异”）
 
 ## 核心源码解析
 
@@ -523,45 +880,3 @@ memoryRouter和abstract作用类似，都是在不支持浏览器的环境中充
 ​		vue router在路由懒加载过程中，会先去获取懒加载页面对应的js文件。等懒加载页面对应的js文件加载并执行完毕，才会开始渲染懒加载页面。
 
 ​		react router在路由懒加载过程中，会先去获取懒加载页面对应的js文件，然后渲染loading页面。等懒加载页面对应的js文件加载并执行完毕，触发更新，渲染懒加载页面。
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-# 补充知识点
