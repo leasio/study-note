@@ -458,15 +458,9 @@ export function render(url: string) {
 
 （原理见下面“核心源码解析”）
 
-### 面试6：为什么要分react-router、react-router-dom，react-router-native这样实现的好处是什么
-
-（详见下面“核心源码解析”）
-
-### 面试7：react-router和vue-router有哪些异同
-
-（详见下面“react-router和vue-router的差异”）
-
 ## 核心源码解析
+
+### 面试6：为什么要分react-router、react-router-dom、react-router-native，这样实现的好处是什么
 
 我们经常使用的BrowserRouter和HashRouter主要依赖三个包：react-router-dom、react-router、history。
 
